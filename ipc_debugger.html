@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPC Debugger — Inter-Process Communication Analyzer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg:      #05070d;
+  --s1:      #080c16;
+  --s2:      #0b1020;
+  --s3:      #0f1628;
+  --border:  #1e2d4a;
+  --border2: #253650;
+
+  --cyan:    #00e5ff;
+  --cyan2:   #00b8d4;
+  --violet:  #b47aff;
+  --violet2: #7c4dff;
+  --mint:    #00ffb2;
+  --mint2:   #00c87a;
+  --amber:   #ffb300;
+  --red:     #ff3d5a;
+  --blue:    #4fc3f7;
+
+  --pipe-c:  #00e5ff;
+  --mq-c:    #b47aff;
+  --shm-c:   #00ffb2;
+
+  --text:    #c5dff5;
+  --dim:     #4a6a8a;
+  --dim2:    #2a4060;
+
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-ui:   'Syne', sans-serif;
+  --font-code: 'Space Mono', monospace;
+
+  --r: 3px;
+  --glow-c:  0 0 16px rgba(0,229,255,.18);
+  --glow-v:  0 0 16px rgba(180,122,255,.18);
+  --glow-m:  0 0 16px rgba(0,255,178,.18);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text);
+             font-family: var(--font-ui); overflow: hidden; }
+
+/* ── Noise texture overlay ── */
+body::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  background-size: 200px;
+  opacity: 0.35;
+}
+
+/* ── Animated top gradient bar ── */
+body::after {
+  content: ''; position: fixed; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--pipe-c), var(--violet), var(--mint), var(--pipe-c));
+  background-size: 300% 100%;
+  animation: shimmer 4s linear infinite;
+  z-index: 9998;
+}
+@keyframes shimmer { 0%{background-position:0%} 100%{background-position:300%} }
+
+/* ── HEADER ── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; height: 52px;
+  background: linear-gradient(180deg, rgba(11,16,32,.98) 0%, rgba(8,12,22,.95) 100%);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; position: relative; z-index: 100;
+}
+
+.logo-mark {
+  display: flex; align-items: center; gap: 14px;
+}
+.logo-icon-wrap {
+  width: 34px; height: 34px; position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.logo-icon-wrap svg { width: 100%; height: 100%; }
+
+.logo-text h1 {
+  font-family: var(--font-ui); font-size: 1rem; font-weight: 800;
+  letter-spacing: .12em; color: var(--cyan);
+  text-shadow: 0 0 24px rgba(0,229,255,.4);
+}
+.logo-text .sub {
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .2em;
+  color: var(--dim); margin-top: 1px;
+}
+
+.header-right { display: flex; align-items: center; gap: 20px; }
+.header-pill {
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .08em;
+  padding: 3px 10px; border-radius: 20px; border: 1px solid;
+  display: flex; align-items: center; gap: 6px; transition: .3s;
+}
+.header-pill.online  { color: var(--mint); border-color: rgba(0,255,178,.4);
+                        background: rgba(0,255,178,.05); }
+.header-pill.offline { color: var(--dim); border-color: var(--border); }
+.pill-dot { width: 6px; height: 6px; border-radius: 50%;
+            background: currentColor; animation: blink 2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+.evt-counter {
+  font-family: var(--font-mono); font-size: .65rem; color: var(--dim);
+}
+.evt-counter span { color: var(--cyan); }
+
+/* ── LAYOUT ── */
+.app {
+  display: grid; height: calc(100vh - 52px);
+  grid-template-columns: 248px 1fr 290px;
+  grid-template-rows: 1fr;
+}
+
+/* ── PANELS ── */
+.panel {
+  background: var(--s1); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.panel-hdr {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .18em;
+  color: var(--cyan); display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0; background: rgba(0,229,255,.02);
+}
+.panel-hdr svg { width: 12px; height: 12px; opacity: .6; flex-shrink: 0; }
+.panel-hdr .ml { margin-left: auto; font-size: .55rem; color: var(--dim); letter-spacing: .08em; }
+
+/* ── SCROLL ── */
+.scroll { overflow-y: auto; flex: 1; }
+.scroll::-webkit-scrollbar { width: 3px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── SECTIONS ── */
+.section { padding: 10px 12px; border-bottom: 1px solid var(--border2); }
+.sec-label {
+  font-family: var(--font-mono); font-size: .55rem; letter-spacing: .22em;
+  color: var(--dim); text-transform: uppercase; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 6px;
+}
+.sec-label::after { content:''; flex:1; height:1px; background:var(--border2); }
+
+/* ── TYPE BADGE ── */
+.ipc-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em;
+  padding: 2px 8px; border-radius: 2px; margin-bottom: 8px; border: 1px solid;
+}
+.ipc-badge.pipe   { color: var(--pipe-c); border-color: rgba(0,229,255,.3);
+                     background: rgba(0,229,255,.04); }
+.ipc-badge.mq     { color: var(--mq-c);   border-color: rgba(180,122,255,.3);
+                     background: rgba(180,122,255,.04); }
+.ipc-badge.shm    { color: var(--shm-c);  border-color: rgba(0,255,178,.3);
+                     background: rgba(0,255,178,.04); }
+
+/* ── BUTTONS ── */
+.btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.btn-grid.single { grid-template-columns: 1fr; }
+
+.btn {
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .04em;
+  padding: 6px 10px; border-radius: var(--r);
+  border: 1px solid var(--border); background: rgba(255,255,255,.02);
+  color: var(--text); cursor: pointer; transition: .15s; text-align: center;
+  white-space: nowrap; display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.btn:hover { background: rgba(0,229,255,.06); border-color: var(--cyan);
+             color: var(--cyan); box-shadow: var(--glow-c); }
+.btn:active { transform: scale(.97); }
+.btn.span2 { grid-column: 1/-1; }
+.btn.init  { border-color: rgba(0,255,178,.35); color: var(--mint); }
+.btn.init:hover { background: rgba(0,255,178,.07); border-color: var(--mint); box-shadow: var(--glow-m); }
+.btn.danger { border-color: rgba(255,61,90,.35); color: var(--red); }
+.btn.danger:hover { background: rgba(255,61,90,.08); border-color: var(--red); }
+.btn.warn { border-color: rgba(255,179,0,.35); color: var(--amber); }
+.btn.warn:hover { background: rgba(255,179,0,.07); border-color: var(--amber); }
+.btn.violet { border-color: rgba(180,122,255,.35); color: var(--violet); }
+.btn.violet:hover { background: rgba(180,122,255,.07); border-color: var(--violet); box-shadow: var(--glow-v); }
+
+/* ── INPUTS ── */
+.field { margin-bottom: 5px; }
+.field-row { display: flex; gap: 5px; align-items: center; }
+.field-lbl { font-family: var(--font-mono); font-size: .58rem; color: var(--dim);
+             min-width: 44px; flex-shrink: 0; }
+input, select {
+  background: rgba(0,0,0,.4); border: 1px solid var(--border2);
+  color: var(--text); font-family: var(--font-mono); font-size: .62rem;
+  padding: 5px 8px; border-radius: var(--r); flex: 1; width: 100%;
+  outline: none; transition: .15s;
+}
+input:focus, select:focus {
+  border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(0,229,255,.1);
+}
+select option { background: var(--s2); }
+
+/* ── PROCESS GRID ── */
+.proc-list { display: flex; flex-direction: column; gap: 3px; }
+.proc-item {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+  border: 1px solid var(--border2); border-radius: var(--r);
+  background: rgba(0,0,0,.2); transition: .3s; position: relative; overflow: hidden;
+}
+.proc-item::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--dim2); transition: .3s;
+}
+.proc-item.s1::before { background: var(--mint); }
+.proc-item.s2::before { background: var(--amber); }
+.proc-item.s3::before { background: var(--red); animation: flashRed .6s ease infinite alternate; }
+@keyframes flashRed { from{opacity:.5} to{opacity:1} }
+.proc-item.s3 { border-color: rgba(255,61,90,.3); background: rgba(255,61,90,.04); }
+.proc-item.s2 { border-color: rgba(255,179,0,.3); background: rgba(255,179,0,.03); }
+
+.proc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.s0 .proc-dot { background: var(--dim2); }
+.s1 .proc-dot { background: var(--mint); box-shadow: 0 0 8px rgba(0,255,178,.6); }
+.s2 .proc-dot { background: var(--amber); box-shadow: 0 0 8px rgba(255,179,0,.5); }
+.s3 .proc-dot { background: var(--red); box-shadow: 0 0 8px rgba(255,61,90,.8);
+                animation: blink .4s linear infinite; }
+.proc-name { font-family: var(--font-mono); font-size: .65rem; flex: 1; }
+.proc-state { font-size: .55rem; font-family: var(--font-mono); letter-spacing: .06em; }
+.s0 .proc-state { color: var(--dim); }
+.s1 .proc-state { color: var(--mint); }
+.s2 .proc-state { color: var(--amber); }
+.s3 .proc-state { color: var(--red); }
+
+/* ── CHANNELS ── */
+.ch-item { margin-bottom: 7px; }
+.ch-row { display: flex; justify-content: space-between; align-items: baseline;
+          margin-bottom: 3px; }
+.ch-name { font-family: var(--font-mono); font-size: .62rem; }
+.ch-meta { font-family: var(--font-mono); font-size: .55rem; color: var(--dim); }
+.ch-track {
+  height: 6px; background: rgba(0,0,0,.4); border-radius: 3px;
+  border: 1px solid var(--border2); overflow: hidden; position: relative;
+}
+.ch-fill {
+  height: 100%; border-radius: 3px; transition: width .5s cubic-bezier(.2,.8,.3,1);
+  position: relative;
+}
+.ch-fill::after {
+  content:''; position:absolute; right:0; top:0; bottom:0; width:6px;
+  background: rgba(255,255,255,.3); border-radius:0 3px 3px 0;
+}
+.ch-fill.pipe  { background: linear-gradient(90deg, rgba(0,180,212,.6), var(--cyan)); }
+.ch-fill.mq    { background: linear-gradient(90deg, rgba(124,77,255,.6), var(--violet)); }
+.ch-fill.shm   { background: linear-gradient(90deg, rgba(0,200,122,.6), var(--mint)); }
+.ch-fill.warn  { background: linear-gradient(90deg, rgba(220,120,0,.7), var(--amber)) !important; }
+.ch-flag { font-family: var(--font-mono); font-size: .55rem; color: var(--red);
+           margin-top: 2px; display: flex; align-items: center; gap: 4px; }
+.ch-throughput { font-size: .55rem; color: var(--dim); }
+
+/* ── CENTER PANEL ── */
+.center-panel { grid-column: 2; border-right: 1px solid var(--border);
+                display: flex; flex-direction: column; overflow: hidden; }
+.viz-wrap { flex: 1; position: relative; overflow: hidden; }
+canvas#viz { width: 100%; height: 100%; display: block; }
+
+/* Empty state hint */
+.viz-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; pointer-events: none;
+}
+.viz-empty-icon {
+  width: 64px; height: 64px; opacity: .15;
+}
+.viz-empty p {
+  font-family: var(--font-mono); font-size: .7rem; color: var(--dim);
+  text-align: center; line-height: 1.6;
+}
+
+/* Timeline */
+.tl-wrap {
+  height: 100px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+.tl-inner { flex: 1; overflow-x: auto; overflow-y: hidden; }
+.tl-inner::-webkit-scrollbar { height: 3px; }
+.tl-inner::-webkit-scrollbar-thumb { background: var(--border); }
+canvas#timeline { display: block; }
+
+/* ── STATS BAR ── */
+.stats-bar {
+  display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.stat-cell {
+  flex: 1; padding: 6px 8px; text-align: center;
+  border-right: 1px solid var(--border); position: relative;
+}
+.stat-cell:last-child { border-right: none; }
+.stat-val {
+  font-family: var(--font-ui); font-size: .95rem; font-weight: 700;
+  color: var(--cyan); line-height: 1;
+}
+.stat-val.warn-val { color: var(--amber); }
+.stat-val.danger-val { color: var(--red); }
+.stat-lbl {
+  font-family: var(--font-mono); font-size: .48rem; letter-spacing: .14em;
+  color: var(--dim); margin-top: 2px;
+}
+
+/* ── LOG ── */
+.log-list { overflow-y: auto; flex: 1; padding: 4px; }
+.log-list::-webkit-scrollbar { width: 3px; }
+.log-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+.log-entry {
+  font-family: var(--font-mono); font-size: .58rem; line-height: 1.55;
+  padding: 4px 7px; margin-bottom: 2px; border-radius: var(--r);
+  border-left: 2px solid var(--border2); background: rgba(0,0,0,.15);
+  animation: slideIn .18s ease; word-break: break-word;
+}
+@keyframes slideIn { from{opacity:0;transform:translateX(4px)} to{opacity:1;transform:none} }
+.log-entry.sev1 { border-color: var(--amber); background: rgba(255,179,0,.04); }
+.log-entry.sev2 { border-color: var(--red);   background: rgba(255,61,90,.06); }
+.log-entry.deadlock {
+  border-color: var(--red); background: rgba(255,61,90,.1);
+  animation: slideIn .18s ease, dlPulse 1s ease infinite alternate;
+}
+@keyframes dlPulse { from{background:rgba(255,61,90,.06)} to{background:rgba(255,61,90,.16)} }
+
+.lt  { color: var(--dim); }
+.lp  { color: var(--cyan); }
+.lpipe { color: var(--pipe-c); }
+.lmq   { color: var(--mq-c); }
+.lshm  { color: var(--shm-c); }
+.le-write      { color: var(--mint); }
+.le-read       { color: var(--blue); }
+.le-deadlock   { color: var(--red); font-weight: 700; }
+.le-bottleneck { color: var(--amber); }
+.le-lock       { color: var(--violet); }
+.le-unlock     { color: rgba(180,122,255,.6); }
+.le-block      { color: var(--amber); }
+.le-unblock    { color: var(--mint); }
+.le-create     { color: var(--cyan); }
+.le-destroy    { color: var(--red); }
+.lmsg { color: var(--text); }
+
+/* ── OVERLAYS ── */
+.deadlock-overlay {
+  position: fixed; inset: 0; background: rgba(255,61,90,.05);
+  pointer-events: none; z-index: 7000; display: none;
+  animation: dlBg 1.5s ease infinite alternate;
+}
+@keyframes dlBg { from{background:rgba(255,61,90,.03)} to{background:rgba(255,61,90,.09)} }
+
+.alert-toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--s2); border: 1px solid var(--red);
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .04em;
+  padding: 8px 18px; border-radius: var(--r);
+  box-shadow: 0 4px 30px rgba(255,61,90,.3), 0 0 0 1px rgba(255,61,90,.15);
+  color: var(--red); z-index: 8000; display: none;
+  animation: toastIn .3s cubic-bezier(.2,.8,.3,1);
+}
+@keyframes toastIn { from{transform:translateX(-50%) translateY(10px);opacity:0}
+                     to{transform:translateX(-50%) translateY(0);opacity:1} }
+
+/* ── TOOLTIP ── */
+.tip {
+  position: fixed; pointer-events: none; z-index: 9000;
+  background: var(--s2); border: 1px solid var(--border);
+  padding: 6px 10px; font-family: var(--font-mono); font-size: .6rem;
+  border-radius: var(--r); box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  max-width: 200px; display: none; color: var(--text);
+}
+
+/* ── AI INSIGHT BOX ── */
+.ai-insight {
+  margin: 8px 12px; padding: 8px 10px;
+  background: rgba(0,229,255,.04); border: 1px solid rgba(0,229,255,.15);
+  border-radius: var(--r); display: none;
+}
+.ai-insight-hdr {
+  font-family: var(--font-mono); font-size: .55rem; letter-spacing: .15em;
+  color: var(--cyan); margin-bottom: 4px; display: flex; align-items: center; gap: 5px;
+}
+.ai-insight-hdr::before { content:'⬡'; font-size:.7rem; }
+.ai-insight-body {
+  font-family: var(--font-mono); font-size: .6rem; color: var(--text);
+  line-height: 1.55;
+}
+
+/* ── EMPTY HINTS ── */
+.empty-hint {
+  font-family: var(--font-mono); font-size: .6rem; color: var(--dim);
+  text-align: center; padding: 10px 8px; line-height: 1.5;
+}
+</style>
+</head>
+<body>
+
+<div class="deadlock-overlay" id="dlOverlay"></div>
+<div class="alert-toast" id="alertToast"></div>
+<div class="tip" id="tip"></div>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="logo-mark">
+    <div class="logo-icon-wrap">
+      <svg viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="17" cy="17" r="16" stroke="#00e5ff" stroke-width="1" stroke-dasharray="3 2" opacity=".5"/>
+        <!-- nodes -->
+        <circle cx="17" cy="7"  r="3.5" fill="none" stroke="#00e5ff" stroke-width="1.5"/>
+        <circle cx="27" cy="24" r="3.5" fill="none" stroke="#00ffb2" stroke-width="1.5"/>
+        <circle cx="7"  cy="24" r="3.5" fill="none" stroke="#b47aff" stroke-width="1.5"/>
+        <!-- edges -->
+        <line x1="17" y1="10.5" x2="24.5" y2="21" stroke="#00e5ff" stroke-width="1" opacity=".6"/>
+        <line x1="17" y1="10.5" x2="9.5"  y2="21" stroke="#b47aff" stroke-width="1" opacity=".6"/>
+        <line x1="9.5" y1="24"  x2="23.5" y2="24" stroke="#00ffb2" stroke-width="1" opacity=".6"/>
+        <!-- center dot -->
+        <circle cx="17" cy="17" r="2" fill="#00e5ff" opacity=".6"/>
+      </svg>
+    </div>
+    <div class="logo-text">
+      <h1>IPC DEBUGGER</h1>
+      <div class="sub">INTER-PROCESS COMMUNICATION ANALYZER v2.0</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="evt-counter">events: <span id="evtCount">0</span></span>
+    <div class="header-pill offline" id="serverPill">
+      <span class="pill-dot"></span><span id="serverTxt">C SERVER OFFLINE</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── APP ── -->
+<div class="app">
+
+  <!-- ── LEFT PANEL ── -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <svg viewBox="0 0 12 12" fill="none"><path d="M2 6h8M6 2v8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      CONTROL PANEL
+    </div>
+    <div class="scroll">
+
+      <!-- Processes -->
+      <div class="section">
+        <div class="sec-label">Processes</div>
+        <div class="proc-list" id="procList">
+          <div class="empty-hint">No processes yet.<br>Spawn one below.</div>
+        </div>
+        <div class="btn-grid single" style="margin-top:8px">
+          <button class="btn init" onclick="doAction('add_process')">＋ Spawn Process</button>
+        </div>
+      </div>
+
+      <!-- Pipes -->
+      <div class="section">
+        <div class="sec-label">Named Pipe</div>
+        <div class="ipc-badge pipe">● PIPE</div>
+        <div class="btn-grid single" style="margin-bottom:6px">
+          <button class="btn init" onclick="doAction('init_pipe')">▷ Init Pipe</button>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">PID</span>
+            <select id="pipe-pid"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">Channel</span>
+            <select id="pipe-ch"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">Data</span>
+            <input type="text" id="pipe-data" placeholder="payload…" value="Hello IPC!">
+          </div>
+        </div>
+        <div class="btn-grid">
+          <button class="btn" onclick="pipeWrite()">▶ Write</button>
+          <button class="btn" onclick="pipeRead()">◀ Read</button>
+          <button class="btn warn span2" onclick="fillPipe()">⚡ Fill Buffer (bottleneck)</button>
+        </div>
+      </div>
+
+      <!-- Message Queue -->
+      <div class="section">
+        <div class="sec-label">Message Queue</div>
+        <div class="ipc-badge mq">● MQ</div>
+        <div class="btn-grid single" style="margin-bottom:6px">
+          <button class="btn violet" onclick="doAction('init_mq')">▷ Init Queue</button>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">PID</span>
+            <select id="mq-pid"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">Channel</span>
+            <select id="mq-ch"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">Type</span>
+            <input type="number" id="mq-mtype" value="1" min="1" style="max-width:55px;flex:none">
+            <input type="text"   id="mq-data"  placeholder="message…" value="MQ payload" style="margin-left:4px">
+          </div>
+        </div>
+        <div class="btn-grid">
+          <button class="btn violet" onclick="mqSend()">▶ Send</button>
+          <button class="btn" onclick="mqRecv()">◀ Recv</button>
+        </div>
+      </div>
+
+      <!-- Shared Memory -->
+      <div class="section">
+        <div class="sec-label">Shared Memory</div>
+        <div class="ipc-badge shm">● SHM</div>
+        <div class="btn-grid single" style="margin-bottom:6px">
+          <button class="btn init" onclick="doAction('init_shm')">▷ Init SHM</button>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">PID</span>
+            <select id="shm-pid"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">Channel</span>
+            <select id="shm-ch"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-row">
+            <span class="field-lbl">Offset</span>
+            <input type="number" id="shm-offset" value="0" min="0" style="max-width:55px;flex:none">
+            <input type="text"   id="shm-data"   placeholder="data…" value="SharedData" style="margin-left:4px">
+          </div>
+        </div>
+        <div class="btn-grid">
+          <button class="btn" onclick="shmWrite()">▶ Write</button>
+          <button class="btn" onclick="shmRead()">◀ Read</button>
+          <button class="btn danger span2" onclick="simDeadlock()">💀 Simulate Deadlock</button>
+          <button class="btn init span2" onclick="resolveDeadlock()">✓ Resolve Deadlock</button>
+        </div>
+      </div>
+
+      <!-- System -->
+      <div class="section">
+        <div class="sec-label">System</div>
+        <div class="btn-grid">
+          <button class="btn danger span2" onclick="doReset()">⟳ Reset All</button>
+        </div>
+      </div>
+
+    </div><!-- /scroll -->
+  </div><!-- /left panel -->
+
+  <!-- ── CENTER PANEL ── -->
+  <div class="center-panel">
+    <div class="panel-hdr">
+      <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1"/><path d="M3.5 6h5M6 3.5v5" stroke="currentColor" stroke-width="1" opacity=".5"/></svg>
+      PROCESS TOPOLOGY &amp; DATA FLOW
+      <span class="ml" id="topoInfo">live simulation</span>
+    </div>
+    <div class="viz-wrap">
+      <canvas id="viz"></canvas>
+      <div class="viz-empty" id="vizEmpty">
+        <svg class="viz-empty-icon" viewBox="0 0 64 64" fill="none">
+          <circle cx="32" cy="32" r="30" stroke="#4a6a8a" stroke-width="1" stroke-dasharray="4 3"/>
+          <circle cx="32" cy="14" r="6" stroke="#4a6a8a" stroke-width="1.5"/>
+          <circle cx="14" cy="46" r="6" stroke="#4a6a8a" stroke-width="1.5"/>
+          <circle cx="50" cy="46" r="6" stroke="#4a6a8a" stroke-width="1.5"/>
+          <line x1="32" y1="20" x2="20" y2="40" stroke="#4a6a8a" stroke-width="1"/>
+          <line x1="32" y1="20" x2="44" y2="40" stroke="#4a6a8a" stroke-width="1"/>
+          <line x1="20" y1="46" x2="44" y2="46" stroke="#4a6a8a" stroke-width="1"/>
+        </svg>
+        <p>Spawn processes and initialise<br>IPC channels to visualise data flow</p>
+      </div>
+    </div>
+    <div class="tl-wrap">
+      <div class="panel-hdr" style="border-top:1px solid var(--border)">
+        <svg viewBox="0 0 12 12" fill="none"><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1"/><circle cx="3" cy="6" r="1.5" fill="currentColor" opacity=".5"/><circle cx="7" cy="6" r="1.5" fill="currentColor"/></svg>
+        EVENT TIMELINE
+        <span class="ml" id="timeRange"></span>
+      </div>
+      <div class="tl-inner">
+        <canvas id="timeline" height="55"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="panel" style="border-right:none">
+    <div class="panel-hdr">
+      <svg viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1"/><line x1="3" y1="4" x2="9" y2="4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="3" y1="6.5" x2="9" y2="6.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/><line x1="3" y1="9" x2="6" y2="9" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+      DIAGNOSTICS
+      <button class="btn" style="margin-left:auto;padding:2px 7px;font-size:.52rem"
+              onclick="clearLog()">CLR</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat-cell">
+        <div class="stat-val" id="s-events">0</div>
+        <div class="stat-lbl">EVENTS</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-val" id="s-bytes">0</div>
+        <div class="stat-lbl">BYTES TX</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-val danger-val" id="s-deadlocks">0</div>
+        <div class="stat-lbl">DEADLOCKS</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-val warn-val" id="s-warns">0</div>
+        <div class="stat-lbl">WARNINGS</div>
+      </div>
+    </div>
+
+    <!-- AI Insight -->
+    <div class="ai-insight" id="aiInsight">
+      <div class="ai-insight-hdr">AI ANALYSIS</div>
+      <div class="ai-insight-body" id="aiInsightBody"></div>
+    </div>
+
+    <!-- Channels -->
+    <div style="padding:10px 12px 6px;border-bottom:1px solid var(--border2);flex-shrink:0">
+      <div class="sec-label">Active Channels</div>
+      <div id="channelList">
+        <div class="empty-hint">No channels initialised.</div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div style="padding:6px 12px 4px;flex-shrink:0">
+      <div class="sec-label">Event Log</div>
+    </div>
+    <div class="log-list" id="logList"></div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   IPC Debugger v2 — Frontend Engine
+   ═══════════════════════════════════════════════════════ */
+
+const API = 'http://localhost:8765';
+
+let state = { events:[], processes:[], channels:[] };
+let localEvents = [];
+let serverOnline = false;
+let deadlockActive = false;
+let localTs = Date.now() * 1000;
+let particles = [];
+let animId;
+
+/* ═══════════ API Layer ═══════════ */
+
+async function apiFetch(path, opts = {}) {
+  try {
+    const r = await fetch(API + path, { ...opts, signal: AbortSignal.timeout(1800) });
+    return await r.json();
+  } catch { return null; }
+}
+
+async function doAction(act, extra = {}) {
+  const body = new URLSearchParams({ action: act, ...extra });
+  const res = await apiFetch('/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  });
+  if (!res) injectLocal(act, extra);
+  await fetchState();
+}
+
+async function fetchState() {
+  const data = await apiFetch('/state');
+  if (data) {
+    serverOnline = true;
+    setServerStatus(true);
+    state = data;
+    localEvents = data.events;
+  } else {
+    serverOnline = false;
+    setServerStatus(false);
+  }
+  render();
+}
+
+function setServerStatus(online) {
+  const pill = document.getElementById('serverPill');
+  const txt  = document.getElementById('serverTxt');
+  pill.className = 'header-pill ' + (online ? 'online' : 'offline');
+  txt.textContent = online ? 'C SERVER ONLINE' : 'C SERVER OFFLINE';
+}
+
+/* ═══════════ Local Simulation ═══════════ */
+
+function makeEvt(pid, ipc, evt, msg, bytes = 0, sev = 0, ch = -1) {
+  localTs += Math.floor(Math.random() * 40000 + 5000);
+  const e = { ts: localTs, pid, ipc, evt, msg, bytes, sev, ch };
+  if (!localEvents) localEvents = [];
+  localEvents.push(e);
+  if (localEvents.length > 512) localEvents.shift();
+  state.events = localEvents;
+  return e;
+}
+
+function injectLocal(act, extra = {}) {
+  const pid  = parseInt(extra.pid) || 0;
+  const ch   = parseInt(extra.ch) || -1;
+  const data = extra.data || 'payload';
+
+  switch (act) {
+    case 'add_process': {
+      if (!state.processes) state.processes = [];
+      const id = state.processes.length;
+      state.processes.push({ id, name: `Process-${id}`, state: 1,
+                             bytes_sent: 0, bytes_recv: 0, msg_count: 0, cpu_us: 0 });
+      makeEvt(id, 'pipe', 'create', `Process-${id} spawned`, 0, 0, -1);
+      break;
+    }
+    case 'init_pipe': {
+      if (!state.channels) state.channels = [];
+      const id = state.channels.length;
+      state.channels.push({ id, type:'pipe', name:`Pipe #${id}`, active:1,
+        bytes:0, msgs:0, blocked:0, buf_used:0, buf_cap:65536, throughput:0 });
+      makeEvt(0, 'pipe', 'create', 'Pipe created', 0, 0, id);
+      break;
+    }
+    case 'init_mq': {
+      if (!state.channels) state.channels = [];
+      const id = state.channels.length;
+      state.channels.push({ id, type:'msgqueue', name:`MsgQ #${id}`, active:1,
+        bytes:0, msgs:0, blocked:0, buf_used:0, buf_cap:16384, throughput:0 });
+      makeEvt(0, 'msgqueue', 'create', 'Message queue created', 0, 0, id);
+      break;
+    }
+    case 'init_shm': {
+      if (!state.channels) state.channels = [];
+      const id = state.channels.length;
+      state.channels.push({ id, type:'shmem', name:`SHM #${id}`, active:1,
+        bytes:0, msgs:0, blocked:0, buf_used:0, buf_cap:4096, throughput:0 });
+      makeEvt(0, 'shmem', 'create', 'Shared memory created', 0, 0, id);
+      break;
+    }
+    case 'pipe_write': {
+      const len = data.length;
+      const c = (state.channels||[]).find(c => c.id === ch);
+      if (c) { c.bytes = (c.bytes||0)+len; c.buf_used = (c.buf_used||0)+len; }
+      makeEvt(pid, 'pipe', 'write', `P${pid}: wrote ${len}B to pipe`, len, 0, ch);
+      if (c && c.buf_used > c.buf_cap * 0.8)
+        makeEvt(pid, 'pipe', 'bottleneck', 'Pipe buffer >80% full', 0, 1, ch);
+      break;
+    }
+    case 'pipe_read': {
+      const c = (state.channels||[]).find(c => c.id === ch);
+      const n = c ? Math.min(c.buf_used||0, 64) : 0;
+      if (c) { c.buf_used = Math.max(0, (c.buf_used||0)-n); c.blocked = 0; }
+      if (n === 0) makeEvt(pid, 'pipe', 'block', `P${pid}: pipe empty`, 0, 1, ch);
+      else makeEvt(pid, 'pipe', 'read', `P${pid}: read ${n}B from pipe`, n, 0, ch);
+      break;
+    }
+    case 'mq_send': {
+      const c = (state.channels||[]).find(c => c.id === ch);
+      if (c) { c.msgs = (c.msgs||0)+1; c.bytes = (c.bytes||0)+128; }
+      makeEvt(pid, 'msgqueue', 'write', `P${pid}: sent '${data}'`, 128, 0, ch);
+      break;
+    }
+    case 'mq_recv': {
+      const c = (state.channels||[]).find(c => c.id === ch);
+      const n = (c && c.msgs > 0) ? 128 : 0;
+      if (c && c.msgs > 0) c.msgs--;
+      if (n === 0) makeEvt(pid, 'msgqueue', 'block', `P${pid}: no messages`, 0, 1, ch);
+      else makeEvt(pid, 'msgqueue', 'read', `P${pid}: received message`, n, 0, ch);
+      break;
+    }
+    case 'shm_write': {
+      const c = (state.channels||[]).find(c => c.id === ch);
+      if (c) { c.bytes=(c.bytes||0)+data.length; c.buf_used=data.length; }
+      makeEvt(pid,'shmem','lock','Acquiring SHM mutex',0,0,ch);
+      makeEvt(pid,'shmem','write',`P${pid}: wrote ${data.length}B to SHM`,data.length,0,ch);
+      makeEvt(pid,'shmem','unlock','Released SHM mutex',0,0,ch);
+      break;
+    }
+    case 'shm_read': {
+      makeEvt(pid,'shmem','lock','Acquiring SHM mutex for read',0,0,ch);
+      makeEvt(pid,'shmem','read',`P${pid}: read bytes from SHM`,32,0,ch);
+      makeEvt(pid,'shmem','unlock','Released SHM mutex',0,0,ch);
+      break;
+    }
+    case 'deadlock': {
+      const p2 = ch;
+      makeEvt(pid,'shmem','deadlock',`DEADLOCK: P${pid} ↔ P${p2} circular wait`,0,2,-1);
+      makeEvt(pid,'shmem','block',`P${pid} holds Lock-A, waiting Lock-B`,0,2,-1);
+      makeEvt(p2,'shmem','block',`P${p2} holds Lock-B, waiting Lock-A`,0,2,-1);
+      if (state.processes[pid]) state.processes[pid].state = 3;
+      if (state.processes[p2])  state.processes[p2].state  = 3;
+      break;
+    }
+    case 'resolve_deadlock': {
+      (state.processes||[]).forEach(p => { if (p.state === 3) p.state = 0; });
+      makeEvt(0,'shmem','unblock','Deadlock resolved — processes unblocked',0,0,-1);
+      break;
+    }
+    case 'reset':
+      state = { events:[], processes:[], channels:[] };
+      localEvents = [];
+      break;
+  }
+}
+
+/* ═══════════ Control Helpers ═══════════ */
+
+const gv = id => document.getElementById(id)?.value ?? '';
+
+function pipeWrite() { doAction('pipe_write', { pid:gv('pipe-pid'), ch:gv('pipe-ch'), data:gv('pipe-data') }); }
+function pipeRead()  { doAction('pipe_read',  { pid:gv('pipe-pid'), ch:gv('pipe-ch') }); }
+async function fillPipe() {
+  const pid = gv('pipe-pid'), ch = gv('pipe-ch');
+  for (let i = 0; i < 14; i++) {
+    await doAction('pipe_write', { pid, ch, data: 'FILL'.repeat(20) });
+    await delay(40);
+  }
+}
+function mqSend()  { doAction('mq_send', { pid:gv('mq-pid'), ch:gv('mq-ch'), mtype:gv('mq-mtype'), data:gv('mq-data') }); }
+function mqRecv()  { doAction('mq_recv', { pid:gv('mq-pid'), ch:gv('mq-ch'), mtype:gv('mq-mtype') }); }
+function shmWrite(){ doAction('shm_write', { pid:gv('shm-pid'), ch:gv('shm-ch'), offset:gv('shm-offset'), data:gv('shm-data') }); }
+function shmRead() { doAction('shm_read',  { pid:gv('shm-pid'), ch:gv('shm-ch'), offset:gv('shm-offset'), len:'32' }); }
+
+function simDeadlock() {
+  const pids = (state.processes||[]).map(p => p.id ?? p.pid);
+  if (pids.length < 2) { showToast('Need ≥ 2 processes for deadlock simulation'); return; }
+  doAction('deadlock', { pid: pids[0], ch: pids[1] });
+}
+function resolveDeadlock() { doAction('resolve_deadlock', { pid: 0 }); }
+
+function doReset() {
+  doAction('reset');
+  deadlockActive = false;
+  document.getElementById('dlOverlay').style.display = 'none';
+  document.getElementById('aiInsight').style.display = 'none';
+  loggedCount = 0;
+}
+function clearLog() { document.getElementById('logList').innerHTML = ''; loggedCount = 0; }
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+/* ═══════════ Render ═══════════ */
+
+function render() {
+  const events   = state.events   || [];
+  const procs    = state.processes || [];
+  const channels = state.channels || [];
+
+  updateSelects(procs, channels);
+  renderProcList(procs);
+  renderChannels(channels);
+  renderLog(events);
+  renderStats(events, channels);
+  updateDeadlockOverlay(events);
+  updateVizEmpty(procs, channels);
+  drawViz(procs, channels, events);
+  drawTimeline(events);
+  updateAiInsight(events, channels, procs);
+
+  document.getElementById('evtCount').textContent = events.length;
+}
+
+function updateSelects(procs, channels) {
+  ['pipe-pid','mq-pid','shm-pid'].forEach(id => {
+    const sel = document.getElementById(id), cur = sel.value;
+    sel.innerHTML = procs.length
+      ? procs.map(p => `<option value="${p.id??p.pid}">P${p.id??p.pid} — ${p.name}</option>`).join('')
+      : '<option value="0">P0</option>';
+    if (cur) sel.value = cur;
+  });
+
+  const byType = t => (channels||[]).filter(c => c.type === t);
+  const chOpts = (chs, def) => chs.length
+    ? chs.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+    : `<option value="${def}">—</option>`;
+
+  document.getElementById('pipe-ch').innerHTML = chOpts(byType('pipe'), 0);
+  document.getElementById('mq-ch').innerHTML   = chOpts(byType('msgqueue'), 1);
+  document.getElementById('shm-ch').innerHTML  = chOpts(byType('shmem'), 2);
+}
+
+function renderProcList(procs) {
+  const el = document.getElementById('procList');
+  if (!procs.length) {
+    el.innerHTML = '<div class="empty-hint">No processes yet.<br>Spawn one below.</div>';
+    return;
+  }
+  const stateLabels = ['IDLE', 'RUNNING', 'BLOCKED', 'DEADLOCK'];
+  el.innerHTML = procs.map(p => {
+    const s = p.state || 0;
+    return `<div class="proc-item s${s}">
+      <div class="proc-dot"></div>
+      <div class="proc-name">P${p.id??p.pid} <span style="opacity:.5;font-size:.55rem">${p.name}</span></div>
+      <div class="proc-state">${stateLabels[s]||'IDLE'}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderChannels(channels) {
+  const el = document.getElementById('channelList');
+  if (!channels.length) {
+    el.innerHTML = '<div class="empty-hint">No channels initialised.</div>';
+    return;
+  }
+  el.innerHTML = channels.map(c => {
+    const pct = c.buf_cap ? Math.min(100, Math.round((c.buf_used||0)/c.buf_cap*100)) : 0;
+    const tc  = c.type === 'pipe' ? 'pipe' : c.type === 'msgqueue' ? 'mq' : 'shm';
+    const col = tc === 'pipe' ? 'var(--pipe-c)' : tc === 'mq' ? 'var(--mq-c)' : 'var(--shm-c)';
+    const fillClass = pct > 75 ? 'warn' : tc;
+    const tp = c.throughput ? `${(c.throughput/1024).toFixed(1)} KB/s` : '';
+    return `<div class="ch-item">
+      <div class="ch-row">
+        <span class="ch-name" style="color:${col}">${c.name}</span>
+        <span class="ch-meta">${fmtBytes(c.bytes||0)} ${tp ? '· '+tp : ''}</span>
+      </div>
+      <div class="ch-track">
+        <div class="ch-fill ${fillClass}" style="width:${pct}%"></div>
+      </div>
+      ${c.blocked ? '<div class="ch-flag">⚠ BLOCKED — buffer full</div>' : ''}
+      ${pct > 75 && !c.blocked ? `<div class="ch-flag" style="color:var(--amber)">⚡ ${pct}% full — bottleneck risk</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+let loggedCount = 0;
+function renderLog(events) {
+  const list = document.getElementById('logList');
+  if (events.length < loggedCount) { list.innerHTML = ''; loggedCount = 0; }
+  const newEvts = events.slice(loggedCount);
+  loggedCount = events.length;
+
+  newEvts.forEach(e => {
+    const div = document.createElement('div');
+    const isDL = (e.evt||e.event) === 'deadlock';
+    const sev  = e.sev || e.severity || 0;
+    div.className = `log-entry${isDL?' deadlock':sev===1?' sev1':sev===2?' sev2':''}`;
+
+    const ts  = fmtTs(e.ts || e.timestamp_us);
+    const ipc = (e.ipc||'pipe').toLowerCase();
+    const evt = (e.evt||e.event||'').toLowerCase();
+    const msg = escH(e.msg || e.message || '');
+    const bytes = e.bytes ? ` <span style="color:var(--dim)">[${e.bytes}B]</span>` : '';
+
+    div.innerHTML =
+      `<span class="lt">${ts}</span> ` +
+      `<span class="lp l${ipc}">[P${e.pid??e.process_id}·${ipc.toUpperCase()}]</span> ` +
+      `<span class="le-${evt}">${evt.toUpperCase()}</span> ` +
+      `<span class="lmsg">${msg}</span>${bytes}`;
+    list.appendChild(div);
+  });
+  if (newEvts.length) list.scrollTop = list.scrollHeight;
+}
+
+function renderStats(events, channels) {
+  let bytes = 0, deadlocks = 0, warns = 0;
+  events.forEach(e => {
+    bytes += (e.bytes || 0);
+    if ((e.evt||e.event) === 'deadlock') deadlocks++;
+    if ((e.sev||e.severity) === 1) warns++;
+  });
+  document.getElementById('s-events').textContent    = events.length;
+  document.getElementById('s-bytes').textContent     = fmtBytes(bytes);
+  document.getElementById('s-deadlocks').textContent = deadlocks;
+  document.getElementById('s-warns').textContent     = warns;
+}
+
+function updateDeadlockOverlay(events) {
+  const has = events.some(e => (e.evt||e.event) === 'deadlock') &&
+              (state.processes||[]).some(p => p.state === 3);
+  if (has && !deadlockActive) {
+    deadlockActive = true;
+    document.getElementById('dlOverlay').style.display = 'block';
+    showToast('⚠ DEADLOCK DETECTED — circular wait between processes!');
+  } else if (!has) {
+    deadlockActive = false;
+    document.getElementById('dlOverlay').style.display = 'none';
+  }
+}
+
+function updateVizEmpty(procs, channels) {
+  document.getElementById('vizEmpty').style.display =
+    (procs.length || channels.length) ? 'none' : 'flex';
+}
+
+/* ─── AI Insight Panel ─── */
+function updateAiInsight(events, channels, procs) {
+  const box  = document.getElementById('aiInsight');
+  const body = document.getElementById('aiInsightBody');
+  if (!events.length) { box.style.display = 'none'; return; }
+
+  const deadlocks  = events.filter(e => (e.evt||e.event) === 'deadlock').length;
+  const bottleneck = events.filter(e => (e.evt||e.event) === 'bottleneck').length;
+  const blocks     = events.filter(e => (e.evt||e.event) === 'block').length;
+  const totalBytes = events.reduce((a, e) => a + (e.bytes||0), 0);
+  const blocked    = procs.filter(p => p.state === 3).length;
+
+  let insights = [];
+  if (deadlocks > 0) insights.push(`🔴 ${deadlocks} deadlock(s) detected — circular lock dependency. Use lock ordering or trylock with timeout.`);
+  if (bottleneck > 0) insights.push(`🟡 ${bottleneck} bottleneck event(s) — buffer saturation. Consider increasing buffer size or adding backpressure.`);
+  if (blocks > 2) insights.push(`🟡 High block rate (${blocks} events) — consumers may be slower than producers.`);
+  if (blocked > 0) insights.push(`🔴 ${blocked} process(es) in deadlock state. Use Resolve Deadlock or implement watchdog.`);
+  if (totalBytes > 500000) insights.push(`📊 High data volume: ${fmtBytes(totalBytes)} transferred. Monitor for memory pressure.`);
+  if (!insights.length) insights.push('✅ System nominal — no anomalies detected.');
+
+  box.style.display = 'block';
+  body.textContent = insights.join('  ');
+}
+
+/* ═══════════ Canvas Visualiser ═══════════ */
+
+const vizCvs = document.getElementById('viz');
+const vctx   = vizCvs.getContext('2d');
+
+function resizeCanvas() {
+  const wr = vizCvs.parentElement;
+  vizCvs.width  = wr.clientWidth;
+  vizCvs.height = wr.clientHeight;
+  const tlW = document.getElementById('timeline').parentElement.clientWidth;
+  document.getElementById('timeline').width = tlW;
+}
+
+function drawViz(procs, channels, events) {
+  const W = vizCvs.width, H = vizCvs.height;
+  if (!W || !H) return;
+  vctx.clearRect(0, 0, W, H);
+
+  /* background grid */
+  vctx.strokeStyle = 'rgba(30,45,74,.35)';
+  vctx.lineWidth = .5;
+  for (let x = 0; x < W; x += 44) { vctx.beginPath(); vctx.moveTo(x,0); vctx.lineTo(x,H); vctx.stroke(); }
+  for (let y = 0; y < H; y += 44) { vctx.beginPath(); vctx.moveTo(0,y); vctx.lineTo(W,y); vctx.stroke(); }
+
+  if (!procs.length) return;
+
+  /* place processes in circle */
+  const n  = procs.length;
+  const cx = W / 2, cy = H / 2;
+  const r  = Math.min(W, H) * 0.31;
+  const procPos = procs.map((p, i) => {
+    const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, p };
+  });
+
+  /* channels */
+  channels.forEach(ch => {
+    if (procPos.length < 2) return;
+    const src = procPos[0];
+    const dst = procPos[Math.min(1, procPos.length - 1)];
+    drawChannel(src.x, src.y, dst.x, dst.y, ch);
+  });
+
+  /* process nodes */
+  procPos.forEach(({ x, y, p }) => drawNode(x, y, p));
+
+  /* particles */
+  updateParticles(procPos, events);
+  drawParticles();
+}
+
+function drawChannel(x1, y1, x2, y2, ch) {
+  const typeCol = ch.type === 'pipe' ? '#00e5ff' : ch.type === 'msgqueue' ? '#b47aff' : '#00ffb2';
+  const pct     = ch.buf_cap ? (ch.buf_used || 0) / ch.buf_cap : 0;
+  const blocked = ch.blocked || ch.is_blocked;
+
+  vctx.save();
+  vctx.strokeStyle = blocked ? '#ff3d5a' : pct > .75 ? '#ffb300' : typeCol;
+  vctx.lineWidth   = 1.5 + pct * 2.5;
+  vctx.globalAlpha = 0.4 + pct * 0.5;
+  if (blocked) vctx.setLineDash([5, 4]);
+
+  vctx.beginPath(); vctx.moveTo(x1, y1); vctx.lineTo(x2, y2); vctx.stroke();
+  vctx.setLineDash([]);
+
+  /* midpoint label */
+  const mx = (x1+x2)/2, my = (y1+y2)/2;
+  vctx.globalAlpha = 1;
+  vctx.font = '8px JetBrains Mono, monospace';
+  vctx.textAlign = 'center';
+  vctx.fillStyle = blocked ? '#ff3d5a' : typeCol;
+  vctx.fillText(ch.name, mx, my - 9);
+  if (blocked) {
+    vctx.fillStyle = '#ff3d5a';
+    vctx.fillText('⚠ BLOCKED', mx, my + 4);
+  } else if (pct > .75) {
+    vctx.fillStyle = '#ffb300';
+    vctx.fillText(`⚡ ${Math.round(pct*100)}%`, mx, my + 4);
+  }
+  vctx.restore();
+}
+
+function drawNode(x, y, p) {
+  const stateC = ['#4a6a8a', '#00ffb2', '#ffb300', '#ff3d5a'];
+  const col    = stateC[p.state || 0];
+  const pid    = p.id ?? p.pid;
+  const t      = Date.now() / 1000;
+
+  /* outer glow */
+  if (p.state !== 0) {
+    const grad = vctx.createRadialGradient(x, y, 0, x, y, 38);
+    grad.addColorStop(0, col + '33');
+    grad.addColorStop(1, 'transparent');
+    vctx.fillStyle = grad;
+    vctx.beginPath(); vctx.arc(x, y, 38, 0, Math.PI * 2); vctx.fill();
+  }
+
+  /* spinning dashed ring for deadlock */
+  if (p.state === 3) {
+    vctx.save();
+    vctx.translate(x, y);
+    vctx.rotate(t * 1.2);
+    vctx.strokeStyle = '#ff3d5a';
+    vctx.lineWidth = 1.5;
+    vctx.setLineDash([4, 3]);
+    vctx.beginPath(); vctx.arc(0, 0, 26, 0, Math.PI * 2); vctx.stroke();
+    vctx.restore();
+  }
+
+  /* core ring */
+  vctx.strokeStyle = col;
+  vctx.lineWidth   = p.state === 3 ? 0 : 1.5;
+  vctx.beginPath(); vctx.arc(x, y, 21, 0, Math.PI * 2); vctx.stroke();
+
+  /* fill */
+  vctx.fillStyle = p.state === 3 ? 'rgba(255,61,90,.15)' : 'rgba(5,7,13,.85)';
+  vctx.beginPath(); vctx.arc(x, y, 21, 0, Math.PI * 2); vctx.fill();
+
+  /* label */
+  vctx.font = 'bold 10px Syne, sans-serif';
+  vctx.fillStyle = col;
+  vctx.textAlign = 'center';
+  vctx.textBaseline = 'middle';
+  vctx.fillText(`P${pid}`, x, y);
+
+  /* name below */
+  vctx.font = '8px JetBrains Mono, monospace';
+  vctx.fillStyle = 'rgba(197,223,245,.45)';
+  vctx.fillText(p.name || `P${pid}`, x, y + 33);
+
+  if (p.state === 3) {
+    vctx.fillStyle = '#ff3d5a';
+    vctx.font = '7px JetBrains Mono, monospace';
+    vctx.fillText('DEADLOCK', x, y + 43);
+  } else if (p.state === 2) {
+    vctx.fillStyle = '#ffb300';
+    vctx.font = '7px JetBrains Mono, monospace';
+    vctx.fillText('BLOCKED', x, y + 43);
+  }
+}
+
+/* ─── Particle System ─── */
+
+function spawnParticle(src, dst, color) {
+  particles.push({
+    x: src.x, y: src.y, tx: dst.x, ty: dst.y,
+    color, t: 0, speed: 0.012 + Math.random() * 0.01
+  });
+}
+
+function updateParticles(procPos, events) {
+  const recent = (events || []).slice(-4);
+  recent.forEach(e => {
+    const evt = e.evt || e.event;
+    if ((evt === 'write' || evt === 'read') && procPos.length >= 2 && Math.random() < 0.35) {
+      const ipc = e.ipc || '';
+      const col = ipc==='pipe' ? '#00e5ff' : ipc==='msgqueue' ? '#b47aff' : '#00ffb2';
+      const idx = (e.pid ?? e.process_id) % procPos.length;
+      const src = procPos[idx];
+      const dst = procPos[(idx + 1) % procPos.length];
+      if (src && dst && (src.x !== dst.x || src.y !== dst.y)) spawnParticle(src, dst, col);
+    }
+  });
+
+  particles = particles.filter(p => {
+    p.t += p.speed;
+    p.x += (p.tx - p.x) * p.speed * 2.2;
+    p.y += (p.ty - p.y) * p.speed * 2.2;
+    return p.t < 1;
+  });
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    const alpha = Math.sin(p.t * Math.PI);
+    vctx.save();
+    vctx.globalAlpha = alpha * 0.9;
+    vctx.fillStyle   = p.color;
+    vctx.shadowColor = p.color;
+    vctx.shadowBlur  = 10;
+    vctx.beginPath();
+    vctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+    vctx.fill();
+    vctx.restore();
+  });
+}
+
+/* ─── Timeline ─── */
+
+function drawTimeline(events) {
+  const tl  = document.getElementById('timeline');
+  const W = tl.width, H = tl.height;
+  const ctx = tl.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  if (!events.length) return;
+
+  const ts0  = events[0].ts || events[0].timestamp_us;
+  const ts1  = events[events.length-1].ts || events[events.length-1].timestamp_us;
+  const span = Math.max(ts1 - ts0, 1);
+
+  /* grid */
+  ctx.strokeStyle = 'rgba(30,45,74,.5)';
+  ctx.lineWidth = .5;
+  for (let x = 0; x < W; x += W/10) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  /* mid line */
+  ctx.strokeStyle = 'rgba(30,45,74,.8)';
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+
+  const ipcColors = { pipe:'#00e5ff', msgqueue:'#b47aff', shmem:'#00ffb2' };
+  const evtY = { write:12, read:22, lock:32, unlock:38, deadlock:H/2,
+                 bottleneck:18, block:42, unblock:28, create:8, destroy:H-8 };
+
+  events.forEach(e => {
+    const ts  = e.ts || e.timestamp_us;
+    const x   = ((ts - ts0) / span) * (W - 24) + 12;
+    const evt = e.evt || e.event;
+    const y   = evtY[evt] || H/2;
+    const sev = e.sev || e.severity || 0;
+    const col = sev === 2 ? '#ff3d5a' : sev === 1 ? '#ffb300' : (ipcColors[e.ipc] || '#4a6a8a');
+
+    ctx.save();
+    ctx.fillStyle  = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur  = sev === 2 ? 8 : 3;
+    ctx.beginPath();
+    ctx.arc(x, y, sev === 2 ? 4.5 : 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  /* legend */
+  const leg = [['pipe','#00e5ff','PIPE'],['mq','#b47aff','MQ'],['shm','#00ffb2','SHM']];
+  ctx.font = '7px JetBrains Mono, monospace';
+  leg.forEach(([,col,lbl], i) => {
+    ctx.fillStyle = col;
+    ctx.fillRect(W - 58, 4 + i*12, 5, 5);
+    ctx.fillText(lbl, W - 50, 10 + i*12);
+  });
+
+  const ts0s = (ts0/1000000).toFixed(2)+'s';
+  const ts1s = (ts1/1000000).toFixed(2)+'s';
+  document.getElementById('timeRange').textContent = `${ts0s} → ${ts1s}`;
+}
+
+/* ═══════════ Utilities ═══════════ */
+
+function fmtBytes(b) {
+  if (b < 1024)    return b + 'B';
+  if (b < 1048576) return (b/1024).toFixed(1) + 'KB';
+  return (b/1048576).toFixed(1) + 'MB';
+}
+
+function fmtTs(us) {
+  if (!us) return '--';
+  return ((us / 1000000) % 1000).toFixed(2) + 's';
+}
+
+function escH(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
+
+let toastTimer;
+function showToast(msg) {
+  const b = document.getElementById('alertToast');
+  b.textContent = msg;
+  b.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => b.style.display = 'none', 4500);
+}
+
+/* ═══════════ Animation Loop ═══════════ */
+
+function loop() {
+  if ((state.processes||[]).length || (state.channels||[]).length) {
+    drawViz(state.processes||[], state.channels||[], state.events||[]);
+  }
+  animId = requestAnimationFrame(loop);
+}
+
+/* ═══════════ Init ═══════════ */
+
+window.addEventListener('resize', () => { resizeCanvas(); });
+resizeCanvas();
+setInterval(fetchState, 1200);
+fetchState();
+loop();
+
+setTimeout(() => {
+  if (!serverOnline)
+    showToast('C server offline — running in local simulation mode');
+}, 1600);
+</script>
+</body>
+</html>
