@@ -1,37 +1,4 @@
-/*
- * IPC Debugger Backend — C Server  (fixed + enhanced)
- * Simulates Pipes, Message Queues, and Shared Memory
- * Exposes a simple HTTP API on port 8765 for the frontend.
- *
- * Compile:
- *   gcc -O2 -Wall -pthread -o ipc_debug_server ipc_debug_server.c
- * Run:
- *   ./ipc_debug_server
- *
- * Fixes applied
- * ─────────────
- * 1. buffer_used clamped after pipe_read subtraction (was missing).
- * 2. msg_count / bytes_transferred now updated on successful msgq_recv.
- * 3. reset() now clears g_lock_count (was left dirty).
- * 4. Action parser used raw strstr/atoi — replaced with token-safe helper
- *    to avoid "ch=" matching "bytes_transferred" etc.
- * 5. JSON buffer was a fixed 16 KB stack array — now heap-allocated to
- *    handle MAX_EVENTS=512 without overflow.
- * 6. sim_deadlock index guard: changed > to >= (off-by-one fix).
- * 7. add_process now zero-initialises the ProcessInfo struct (memset).
- * 8. Process pid field is set consistently before g_proc_count++ is used.
- * 9. CORS OPTIONS pre-flight now sends a proper Content-Length: 0 header.
- *10. throughput_bps field added to JSON channel output.
- *
- * Enhancements
- * ────────────
- * • GET /health — heartbeat endpoint for the frontend status indicator.
- * • Auto-simulation thread: generates synthetic IPC traffic when idle > 3 s,
- *   keeping the visualiser lively without manual interaction.
- * • Per-process cpu_time_us incremented each event for richer timeline data.
- * • Throughput computed as bytes_transferred / uptime_seconds per channel.
- * • resolve_deadlock action: clears deadlock state on all processes.
- */
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,7 +81,6 @@ typedef struct {
     int is_deadlock;
 } LockState;
 
-/* ─────────────────── Global State ─────────────────── */
 
 static IPCEvent    g_events[MAX_EVENTS];
 static int         g_event_count   = 0;
@@ -136,7 +102,6 @@ static pthread_mutex_t g_shm_mutex = PTHREAD_MUTEX_INITIALIZER;
 static long long g_start_us       = 0;
 static long long g_last_action_us = 0;
 
-/* ─────────────────── Helpers ─────────────────── */
 
 static long long now_us(void) {
     struct timespec ts;
@@ -144,7 +109,6 @@ static long long now_us(void) {
     return (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
 }
 
-/* FIX #4: token-safe parameter extractor */
 static int param_int(const char *body, const char *key) {
     size_t klen = strlen(key);
     const char *p = body;
@@ -197,7 +161,7 @@ static void push_event(int pid, IPCType ipc, EventType evt,
     pthread_mutex_unlock(&g_state_mutex);
 }
 
-/* ─────────────────── IPC Init ─────────────────── */
+
 
 static int init_pipe(void) {
     if (g_pipe_fds[0] >= 0) return -1;
@@ -256,7 +220,6 @@ static int init_shmem(void) {
     return id;
 }
 
-/* ─────────────────── Simulation Actions ─────────────── */
 
 struct msgbuf { long mtype; char mtext[MSG_SIZE]; };
 
@@ -297,7 +260,7 @@ static void sim_pipe_read(int pid, int ch_id) {
         snprintf(msg, 256, "P%d: pipe read — no data available", pid);
         push_event(pid, IPC_PIPE, EVT_BLOCK, msg, 0, 1, ch_id);
     } else {
-        /* FIX #1: clamp buffer_used */
+
         g_channels[ch_id].buffer_used -= n;
         if (g_channels[ch_id].buffer_used < 0) g_channels[ch_id].buffer_used = 0;
         g_channels[ch_id].is_blocked   = 0;
@@ -344,7 +307,7 @@ static void sim_msgq_recv(int pid, int ch_id, int mtype) {
         snprintf(msg, 256, "P%d: msgrcv FAILED — no message (EAGAIN)", pid);
         push_event(pid, IPC_MSGQUEUE, EVT_BLOCK, msg, 0, 1, ch_id);
     } else {
-        /* FIX #2: update msg_count and bytes on recv */
+
         if (g_channels[ch_id].msg_count > 0) g_channels[ch_id].msg_count--;
         g_channels[ch_id].bytes_transferred += r;
         if (pid >= 0 && pid < g_proc_count)
@@ -396,7 +359,6 @@ static void sim_shm_read(int pid, int ch_id, int offset, int len) {
     push_event(pid, IPC_SHMEM, EVT_UNLOCK, "Released SHM mutex", 0, 0, ch_id);
 }
 
-/* FIX #6: use >= for index check */
 static void sim_deadlock(int pid1, int pid2) {
     char msg[256];
     snprintf(msg, 256, "DEADLOCK DETECTED: P%d <-> P%d circular wait", pid1, pid2);
@@ -411,7 +373,6 @@ static void sim_deadlock(int pid1, int pid2) {
     pthread_mutex_unlock(&g_state_mutex);
 }
 
-/* ─────────────────── Auto-Simulation Thread ───────────── */
 
 static void *auto_sim_thread(void *arg) {
     (void)arg;
@@ -457,7 +418,6 @@ static void *auto_sim_thread(void *arg) {
     return NULL;
 }
 
-/* ─────────────────── HTTP Helpers ─────────────────── */
 
 static const char *ipc_type_str(IPCType t) {
     switch (t) {
@@ -484,7 +444,6 @@ static const char *evt_str(EventType e) {
     }
 }
 
-/* FIX #9: unified header writer */
 static void write_headers(int fd, int content_len) {
     char hdr[512];
     int n = snprintf(hdr, sizeof(hdr),
@@ -499,7 +458,6 @@ static void write_headers(int fd, int content_len) {
     write(fd, hdr, n);
 }
 
-/* FIX #5: heap-allocated JSON */
 static void handle_state(int fd) {
     long long uptime = (now_us() - g_start_us) / 1000000 + 1;
     size_t cap = 4096
@@ -595,7 +553,7 @@ static void handle_action(int fd, const char *body) {
     else if (!strcmp(action,"add_process")) {
         pthread_mutex_lock(&g_state_mutex);
         if (g_proc_count < MAX_PROCESSES) {
-            /* FIX #7: zero-initialise */
+          
             ProcessInfo *pr = &g_processes[g_proc_count];
             memset(pr, 0, sizeof(*pr));
             pr->pid   = g_proc_count;
@@ -610,7 +568,7 @@ static void handle_action(int fd, const char *body) {
     else if (!strcmp(action,"reset")) {
         pthread_mutex_lock(&g_state_mutex);
         g_event_count=0; g_proc_count=0; g_channel_count=0;
-        /* FIX #3: also reset lock_count */
+        
         g_lock_count=0;
         if (g_pipe_fds[0]>=0){ close(g_pipe_fds[0]); close(g_pipe_fds[1]);
                                 g_pipe_fds[0]=g_pipe_fds[1]=-1; }
