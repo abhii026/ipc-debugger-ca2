@@ -47,7 +47,7 @@
 html, body { height: 100%; background: var(--bg); color: var(--text);
              font-family: var(--font-ui); overflow: hidden; }
 
-/* ── Noise texture overlay ── */
+
 body::before {
   content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
@@ -55,7 +55,7 @@ body::before {
   opacity: 0.35;
 }
 
-/* ── Animated top gradient bar ── */
+
 body::after {
   content: ''; position: fixed; top: 0; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, var(--pipe-c), var(--violet), var(--mint), var(--pipe-c));
@@ -65,7 +65,7 @@ body::after {
 }
 @keyframes shimmer { 0%{background-position:0%} 100%{background-position:300%} }
 
-/* ── HEADER ── */
+
 header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 20px; height: 52px;
@@ -111,14 +111,14 @@ header {
 }
 .evt-counter span { color: var(--cyan); }
 
-/* ── LAYOUT ── */
+
 .app {
   display: grid; height: calc(100vh - 52px);
   grid-template-columns: 248px 1fr 290px;
   grid-template-rows: 1fr;
 }
 
-/* ── PANELS ── */
+
 .panel {
   background: var(--s1); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden;
@@ -132,13 +132,13 @@ header {
 .panel-hdr svg { width: 12px; height: 12px; opacity: .6; flex-shrink: 0; }
 .panel-hdr .ml { margin-left: auto; font-size: .55rem; color: var(--dim); letter-spacing: .08em; }
 
-/* ── SCROLL ── */
+
 .scroll { overflow-y: auto; flex: 1; }
 .scroll::-webkit-scrollbar { width: 3px; }
 .scroll::-webkit-scrollbar-track { background: transparent; }
 .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* ── SECTIONS ── */
+
 .section { padding: 10px 12px; border-bottom: 1px solid var(--border2); }
 .sec-label {
   font-family: var(--font-mono); font-size: .55rem; letter-spacing: .22em;
@@ -147,7 +147,7 @@ header {
 }
 .sec-label::after { content:''; flex:1; height:1px; background:var(--border2); }
 
-/* ── TYPE BADGE ── */
+
 .ipc-badge {
   display: inline-flex; align-items: center; gap: 5px;
   font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em;
@@ -160,7 +160,6 @@ header {
 .ipc-badge.shm    { color: var(--shm-c);  border-color: rgba(0,255,178,.3);
                      background: rgba(0,255,178,.04); }
 
-/* ── BUTTONS ── */
 .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .btn-grid.single { grid-template-columns: 1fr; }
 
@@ -184,7 +183,7 @@ header {
 .btn.violet { border-color: rgba(180,122,255,.35); color: var(--violet); }
 .btn.violet:hover { background: rgba(180,122,255,.07); border-color: var(--violet); box-shadow: var(--glow-v); }
 
-/* ── INPUTS ── */
+
 .field { margin-bottom: 5px; }
 .field-row { display: flex; gap: 5px; align-items: center; }
 .field-lbl { font-family: var(--font-mono); font-size: .58rem; color: var(--dim);
@@ -200,7 +199,7 @@ input:focus, select:focus {
 }
 select option { background: var(--s2); }
 
-/* ── PROCESS GRID ── */
+
 .proc-list { display: flex; flex-direction: column; gap: 3px; }
 .proc-item {
   display: flex; align-items: center; gap: 8px; padding: 5px 8px;
@@ -231,7 +230,6 @@ select option { background: var(--s2); }
 .s2 .proc-state { color: var(--amber); }
 .s3 .proc-state { color: var(--red); }
 
-/* ── CHANNELS ── */
 .ch-item { margin-bottom: 7px; }
 .ch-row { display: flex; justify-content: space-between; align-items: baseline;
           margin-bottom: 3px; }
@@ -257,13 +255,12 @@ select option { background: var(--s2); }
            margin-top: 2px; display: flex; align-items: center; gap: 4px; }
 .ch-throughput { font-size: .55rem; color: var(--dim); }
 
-/* ── CENTER PANEL ── */
+
 .center-panel { grid-column: 2; border-right: 1px solid var(--border);
                 display: flex; flex-direction: column; overflow: hidden; }
 .viz-wrap { flex: 1; position: relative; overflow: hidden; }
 canvas#viz { width: 100%; height: 100%; display: block; }
 
-/* Empty state hint */
 .viz-empty {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 12px; pointer-events: none;
@@ -276,7 +273,6 @@ canvas#viz { width: 100%; height: 100%; display: block; }
   text-align: center; line-height: 1.6;
 }
 
-/* Timeline */
 .tl-wrap {
   height: 100px; border-top: 1px solid var(--border);
   display: flex; flex-direction: column; flex-shrink: 0;
@@ -286,7 +282,6 @@ canvas#viz { width: 100%; height: 100%; display: block; }
 .tl-inner::-webkit-scrollbar-thumb { background: var(--border); }
 canvas#timeline { display: block; }
 
-/* ── STATS BAR ── */
 .stats-bar {
   display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
@@ -306,7 +301,6 @@ canvas#timeline { display: block; }
   color: var(--dim); margin-top: 2px;
 }
 
-/* ── LOG ── */
 .log-list { overflow-y: auto; flex: 1; padding: 4px; }
 .log-list::-webkit-scrollbar { width: 3px; }
 .log-list::-webkit-scrollbar-thumb { background: var(--border); }
@@ -343,7 +337,7 @@ canvas#timeline { display: block; }
 .le-destroy    { color: var(--red); }
 .lmsg { color: var(--text); }
 
-/* ── OVERLAYS ── */
+
 .deadlock-overlay {
   position: fixed; inset: 0; background: rgba(255,61,90,.05);
   pointer-events: none; z-index: 7000; display: none;
@@ -363,7 +357,6 @@ canvas#timeline { display: block; }
 @keyframes toastIn { from{transform:translateX(-50%) translateY(10px);opacity:0}
                      to{transform:translateX(-50%) translateY(0);opacity:1} }
 
-/* ── TOOLTIP ── */
 .tip {
   position: fixed; pointer-events: none; z-index: 9000;
   background: var(--s2); border: 1px solid var(--border);
@@ -372,7 +365,7 @@ canvas#timeline { display: block; }
   max-width: 200px; display: none; color: var(--text);
 }
 
-/* ── AI INSIGHT BOX ── */
+
 .ai-insight {
   margin: 8px 12px; padding: 8px 10px;
   background: rgba(0,229,255,.04); border: 1px solid rgba(0,229,255,.15);
@@ -388,7 +381,7 @@ canvas#timeline { display: block; }
   line-height: 1.55;
 }
 
-/* ── EMPTY HINTS ── */
+
 .empty-hint {
   font-family: var(--font-mono); font-size: .6rem; color: var(--dim);
   text-align: center; padding: 10px 8px; line-height: 1.5;
@@ -401,7 +394,6 @@ canvas#timeline { display: block; }
 <div class="alert-toast" id="alertToast"></div>
 <div class="tip" id="tip"></div>
 
-<!-- ── HEADER ── -->
 <header>
   <div class="logo-mark">
     <div class="logo-icon-wrap">
@@ -432,10 +424,9 @@ canvas#timeline { display: block; }
   </div>
 </header>
 
-<!-- ── APP ── -->
+
 <div class="app">
 
-  <!-- ── LEFT PANEL ── -->
   <div class="panel">
     <div class="panel-hdr">
       <svg viewBox="0 0 12 12" fill="none"><path d="M2 6h8M6 2v8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -560,8 +551,8 @@ canvas#timeline { display: block; }
         </div>
       </div>
 
-    </div><!-- /scroll -->
-  </div><!-- /left panel -->
+    </div>
+  </div>
 
   <!-- ── CENTER PANEL ── -->
   <div class="center-panel">
@@ -650,9 +641,7 @@ canvas#timeline { display: block; }
 </div><!-- /app -->
 
 <script>
-/* ═══════════════════════════════════════════════════════
-   IPC Debugger v2 — Frontend Engine
-   ═══════════════════════════════════════════════════════ */
+
 
 const API = 'http://localhost:8765';
 
@@ -664,7 +653,7 @@ let localTs = Date.now() * 1000;
 let particles = [];
 let animId;
 
-/* ═══════════ API Layer ═══════════ */
+
 
 async function apiFetch(path, opts = {}) {
   try {
@@ -705,7 +694,7 @@ function setServerStatus(online) {
   txt.textContent = online ? 'C SERVER ONLINE' : 'C SERVER OFFLINE';
 }
 
-/* ═══════════ Local Simulation ═══════════ */
+
 
 function makeEvt(pid, ipc, evt, msg, bytes = 0, sev = 0, ch = -1) {
   localTs += Math.floor(Math.random() * 40000 + 5000);
@@ -821,7 +810,6 @@ function injectLocal(act, extra = {}) {
   }
 }
 
-/* ═══════════ Control Helpers ═══════════ */
 
 const gv = id => document.getElementById(id)?.value ?? '';
 
@@ -855,8 +843,6 @@ function doReset() {
 }
 function clearLog() { document.getElementById('logList').innerHTML = ''; loggedCount = 0; }
 const delay = ms => new Promise(r => setTimeout(r, ms));
-
-/* ═══════════ Render ═══════════ */
 
 function render() {
   const events   = state.events   || [];
@@ -1088,7 +1074,6 @@ function drawChannel(x1, y1, x2, y2, ch) {
   vctx.beginPath(); vctx.moveTo(x1, y1); vctx.lineTo(x2, y2); vctx.stroke();
   vctx.setLineDash([]);
 
-  /* midpoint label */
   const mx = (x1+x2)/2, my = (y1+y2)/2;
   vctx.globalAlpha = 1;
   vctx.font = '8px JetBrains Mono, monospace';
